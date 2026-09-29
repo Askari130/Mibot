@@ -1,0 +1,22 @@
+<?xml version="1.0"?>
+<?xml-model href="http://download.ros.org/schema/package_format3.xsd" schematypens="http://www.w3.org/2001/XMLSchema"?>
+<package format="3">
+  <name>mibot_bringup</name>
+  <version>0.1.0</version>
+  <description>Top-level launch files that start everything Mibot needs: robot_state_publisher, motor driver, LIDAR, camera, twist_mux.</description>
+  <maintainer email="muqaddiso@gmail.com">Muqaddis Adedeji Olopade</maintainer>
+  <license>MIT</license>
+
+  <exec_depend>mibot_description</exec_depend>
+  <exec_depend>mibot_drive</exec_depend>
+  <exec_depend>mibot_teleop</exec_depend>
+  <exec_depend>rplidar_ros</exec_depend>
+  <exec_depend>v4l2_camera</exec_depend>
+  <exec_depend>twist_mux</exec_depend>
+  <exec_depend>launch</exec_depend>
+  <exec_depend>launch_ros</exec_depend>
+
+  <export>
+    <build_type>ament_python</build_type>
+  </export>
+</package>

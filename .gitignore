@@ -1,0 +1,23 @@
+# ROS 2 / colcon build artefacts
+build/
+install/
+log/
+
+# Python
+__pycache__/
+*.pyc
+*.pyo
+*.egg-info/
+.eggs/
+
+# Editors
+.vscode/
+.idea/
+*.swp
+*~
+.DS_Store
+
+# Local maps and captures
+maps/
+*.pgm
+*.pcd

@@ -1,0 +1,179 @@
+<?xml version="1.0"?>
+<robot xmlns:xacro="http://www.ros.org/wiki/xacro" name="mibot">
+
+  <!--
+    Mibot URDF/Xacro
+    ================
+    Differential-drive mobile robot: 4-wheel plastic chassis, Raspberry Pi 4,
+    L298N motor driver, RPLIDAR, camera. The two rear motors are encoded (one
+    per side) so odometry is closed-loop, but the URDF treats each side as a
+    single wheel joint - which is what `diff_drive_controller` expects.
+
+    All dimensions are for a common blue 4WD "smart car" chassis. Measure YOUR
+    chassis and update the property block below before shipping this on real
+    hardware; the base_link -> lidar_link and base_link -> camera_link offsets
+    are the ones that matter most for SLAM quality.
+  -->
+
+  <xacro:include filename="inertial_macros.xacro"/>
+
+  <!-- ============================== Properties ============================== -->
+
+  <xacro:property name="chassis_length"     value="0.22"/>   <!-- 220 mm -->
+  <xacro:property name="chassis_width"      value="0.14"/>   <!-- 140 mm -->
+  <xacro:property name="chassis_height"     value="0.05"/>   <!-- 50 mm  -->
+  <xacro:property name="chassis_mass"       value="0.8"/>    <!-- 800 g  -->
+
+  <xacro:property name="wheel_radius"       value="0.035"/>  <!-- 35 mm  -->
+  <xacro:property name="wheel_thickness"    value="0.026"/>  <!-- 26 mm  -->
+  <xacro:property name="wheel_mass"         value="0.05"/>   <!-- 50 g   -->
+  <xacro:property name="wheel_separation"   value="0.16"/>   <!-- 160 mm centre-to-centre, L-R -->
+  <xacro:property name="wheel_offset_x"     value="0.07"/>   <!-- front/back offset from base_link -->
+
+  <xacro:property name="lidar_radius"       value="0.038"/>
+  <xacro:property name="lidar_height"       value="0.041"/>
+  <xacro:property name="lidar_offset_x"     value="0.02"/>
+  <xacro:property name="lidar_offset_z"     value="${chassis_height + lidar_height/2 + 0.005}"/>
+
+  <xacro:property name="camera_x"           value="0.03"/>
+  <xacro:property name="camera_y"           value="0.03"/>
+  <xacro:property name="camera_z"           value="0.03"/>
+
+  <!-- ============================== Materials ============================== -->
+
+  <material name="chassis_blue"><color rgba="0.12 0.35 0.75 1.0"/></material>
+  <material name="wheel_black">  <color rgba="0.10 0.10 0.10 1.0"/></material>
+  <material name="lidar_grey">   <color rgba="0.30 0.30 0.30 1.0"/></material>
+  <material name="camera_red">   <color rgba="0.80 0.15 0.15 1.0"/></material>
+
+  <!-- ============================== base_link ============================== -->
+
+  <!-- REP-105: base_link is the coordinate frame the robot rotates around.
+       For a diff-drive robot, place it on the ground between the drive wheels. -->
+  <link name="base_link"/>
+
+  <joint name="chassis_joint" type="fixed">
+    <parent link="base_link"/>
+    <child  link="chassis"/>
+    <origin xyz="0 0 ${wheel_radius}" rpy="0 0 0"/>
+  </joint>
+
+  <link name="chassis">
+    <visual>
+      <origin xyz="0 0 ${chassis_height/2}"/>
+      <geometry><box size="${chassis_length} ${chassis_width} ${chassis_height}"/></geometry>
+      <material name="chassis_blue"/>
+    </visual>
+    <collision>
+      <origin xyz="0 0 ${chassis_height/2}"/>
+      <geometry><box size="${chassis_length} ${chassis_width} ${chassis_height}"/></geometry>
+    </collision>
+    <xacro:inertial_box mass="${chassis_mass}"
+                        x="${chassis_length}" y="${chassis_width}" z="${chassis_height}">
+      <origin xyz="0 0 ${chassis_height/2}" rpy="0 0 0"/>
+    </xacro:inertial_box>
+  </link>
+
+  <!-- ============================== Wheels ============================== -->
+  <!--
+    Only two wheel LINKS/JOINTS are declared: left_wheel and right_wheel.
+    Each represents the DRIVEN side; the two physical motors per side spin
+    together because they're wired in parallel at the L298N, and only the
+    rear motor has an encoder. This matches what diff_drive_controller wants.
+  -->
+
+  <xacro:macro name="wheel" params="name y_offset">
+    <link name="${name}_wheel">
+      <visual>
+        <origin xyz="0 0 0" rpy="${pi/2} 0 0"/>
+        <geometry><cylinder radius="${wheel_radius}" length="${wheel_thickness}"/></geometry>
+        <material name="wheel_black"/>
+      </visual>
+      <collision>
+        <origin xyz="0 0 0" rpy="${pi/2} 0 0"/>
+        <geometry><cylinder radius="${wheel_radius}" length="${wheel_thickness}"/></geometry>
+      </collision>
+      <xacro:inertial_cylinder mass="${wheel_mass}"
+                               length="${wheel_thickness}" radius="${wheel_radius}">
+        <origin xyz="0 0 0" rpy="${pi/2} 0 0"/>
+      </xacro:inertial_cylinder>
+    </link>
+
+    <joint name="${name}_wheel_joint" type="continuous">
+      <parent link="base_link"/>
+      <child  link="${name}_wheel"/>
+      <origin xyz="0 ${y_offset} 0" rpy="0 0 0"/>
+      <axis xyz="0 1 0"/>
+    </joint>
+  </xacro:macro>
+
+  <xacro:wheel name="left"  y_offset="${ wheel_separation/2}"/>
+  <xacro:wheel name="right" y_offset="${-wheel_separation/2}"/>
+
+  <!-- ============================== Caster / drag point ==============================
+       No caster wheel on the real Mibot — the front and rear motor pairs both
+       drive. This is just a friction-less contact point at the front so the
+       simulated robot doesn't fall over in Gazebo. It's inside chassis so it
+       doesn't show up as a visible thing on the real robot. -->
+
+  <link name="caster">
+    <collision>
+      <geometry><sphere radius="${wheel_radius}"/></geometry>
+    </collision>
+    <xacro:inertial_sphere mass="0.001" radius="${wheel_radius}">
+      <origin xyz="0 0 0"/>
+    </xacro:inertial_sphere>
+  </link>
+
+  <joint name="caster_joint" type="fixed">
+    <parent link="chassis"/>
+    <child  link="caster"/>
+    <origin xyz="${wheel_offset_x} 0 ${-wheel_radius + 0.001}"/>
+  </joint>
+
+  <!-- ============================== LIDAR ============================== -->
+
+  <joint name="lidar_joint" type="fixed">
+    <parent link="chassis"/>
+    <child  link="lidar_link"/>
+    <origin xyz="${lidar_offset_x} 0 ${lidar_offset_z}" rpy="0 0 0"/>
+  </joint>
+
+  <link name="lidar_link">
+    <visual>
+      <geometry><cylinder radius="${lidar_radius}" length="${lidar_height}"/></geometry>
+      <material name="lidar_grey"/>
+    </visual>
+    <collision>
+      <geometry><cylinder radius="${lidar_radius}" length="${lidar_height}"/></geometry>
+    </collision>
+    <xacro:inertial_cylinder mass="0.17"
+                             length="${lidar_height}" radius="${lidar_radius}">
+      <origin xyz="0 0 0"/>
+    </xacro:inertial_cylinder>
+  </link>
+
+  <!-- ============================== Camera ============================== -->
+
+  <joint name="camera_joint" type="fixed">
+    <parent link="chassis"/>
+    <child  link="camera_link"/>
+    <origin xyz="${chassis_length/2 - camera_x/2} 0 ${chassis_height + camera_z/2}"/>
+  </joint>
+
+  <link name="camera_link">
+    <visual>
+      <geometry><box size="${camera_x} ${camera_y} ${camera_z}"/></geometry>
+      <material name="camera_red"/>
+    </visual>
+  </link>
+
+  <!-- REP-103: camera_link_optical is what image messages use -->
+  <joint name="camera_optical_joint" type="fixed">
+    <parent link="camera_link"/>
+    <child  link="camera_link_optical"/>
+    <origin rpy="${-pi/2} 0 ${-pi/2}"/>
+  </joint>
+  <link name="camera_link_optical"/>
+
+</robot>

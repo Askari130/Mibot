@@ -1,0 +1,59 @@
+mibot_drive:
+  ros__parameters:
+
+    # -------------------------------------------------------------------
+    # L298N control pins (BCM numbering).
+    # Must match the wiring table in docs/hardware.md.
+    # -------------------------------------------------------------------
+    left_pwm_pin:    12       # ENA
+    left_dir_a_pin:  23       # IN1
+    left_dir_b_pin:  24       # IN2
+    right_pwm_pin:   13       # ENB
+    right_dir_a_pin: 27       # IN3
+    right_dir_b_pin: 22       # IN4
+
+    # -------------------------------------------------------------------
+    # Rear-motor quadrature encoders (BCM numbering).
+    # -------------------------------------------------------------------
+    left_encoder_a_pin:   5
+    left_encoder_b_pin:   6
+    right_encoder_a_pin:  16
+    right_encoder_b_pin:  26
+
+    # Measure yourself: roll a wheel by hand exactly one turn, note the tick
+    # count on /wheel_ticks, average over three runs. See docs/software.md.
+    encoder_ticks_per_revolution: 40
+
+    # Flip if odometry reports motion in the wrong direction on that side.
+    invert_left_encoder:  false
+    invert_right_encoder: false
+
+    # -------------------------------------------------------------------
+    # Physical geometry.
+    # Keep in sync with the wheel_radius / wheel_separation values in
+    # src/mibot_description/urdf/mibot.urdf.xacro.
+    # -------------------------------------------------------------------
+    wheel_radius:     0.035      # metres
+    wheel_separation: 0.16       # metres, centre-to-centre L-R
+
+    # -------------------------------------------------------------------
+    # Motor characteristics.
+    # -------------------------------------------------------------------
+    max_linear_speed:  0.5       # m/s that ~100% PWM corresponds to
+    max_angular_speed: 3.0       # rad/s cap on turn commands
+    pwm_frequency:     1000      # Hz
+    min_pwm_duty:      0.15      # deadband: below this, motor stalls silently
+
+    # -------------------------------------------------------------------
+    # Loop rates.
+    # -------------------------------------------------------------------
+    control_rate_hz:  50         # cmd_vel -> PWM update rate
+    odom_rate_hz:     30         # /odom + TF broadcast rate
+    cmd_vel_timeout:  0.5        # stop motors if no new cmd_vel for this long
+
+    # -------------------------------------------------------------------
+    # Frames.
+    # -------------------------------------------------------------------
+    odom_frame:      odom
+    base_frame:      base_link
+    publish_odom_tf: true        # false if robot_localization owns the TF

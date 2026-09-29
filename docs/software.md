@@ -13,7 +13,7 @@ Mibot runs a stock ROS 2 stack. This file covers the OS, packages, workspace lay
 | Middleware | ROS 2 Humble Hawksbill |
 | Robot description | URDF/Xacro |
 | Simulation | Gazebo (optional, for testing before the real robot exists) |
-| Motor control | `ros2_control` with `diff_drive_controller` and a small `hardware_interface` that drives the L298N over GPIO and reads the rear-wheel quadrature encoders (one per side) |
+| Motor control | `mibot_drive` — a plain Python `rclpy` node that subscribes to `/cmd_vel`, drives the L298N via GPIO PWM (`gpiozero`), reads the rear-wheel quadrature encoders, and publishes `/odom` + TF. `ros2_control` migration is future work. |
 | LIDAR driver | `rplidar_ros` (or `sllidar_ros2`) for the Slamtec RPLIDAR |
 | Camera driver | `v4l2_camera` (USB webcam) or `camera_ros` (Pi Camera via libcamera) |
 | Teleop | `teleop_twist_keyboard`, `teleop_twist_joy` |
@@ -44,26 +44,25 @@ On your laptop (for driving/visualisation):
 
 ```
 ~/mibot_ws/
-└── src/
-    ├── mibot_description/     # URDF/Xacro, meshes, RViz configs
-    ├── mibot_bringup/         # launch files that start the whole robot
-    ├── mibot_hardware/        # hardware_interface for the L298N via GPIO
-    ├── mibot_teleop/          # twist_mux + teleop launch
-    └── mibot_slam/            # slam_toolbox params + launch
+└── src/                        (= this repo's src/)
+    ├── mibot_description/      # URDF/Xacro, RViz config, robot_state_publisher launch
+    ├── mibot_drive/            # cmd_vel -> L298N GPIO + encoder odometry (Python)
+    ├── mibot_bringup/          # top-level launch: rsp + drive + rplidar + camera + twist_mux
+    ├── mibot_teleop/           # twist_mux config + keyboard/joystick teleop launch
+    └── mibot_slam/             # slam_toolbox params + launch
 ```
 
-Each package is a standard `ament_cmake` (C++) or `ament_python` (Python) package. `mibot_bringup` is the one you launch — everything else is a dependency.
+`mibot_description` is `ament_cmake`; the other four are `ament_python`. `mibot_bringup` is the one you launch — everything else is a dependency.
 
 ## Install
 
 ```bash
-# 1. Clone this repo into your ROS 2 workspace
-mkdir -p ~/mibot_ws/src
-cd ~/mibot_ws/src
-git clone https://github.com/Askari130/Mibot.git
+# 1. Clone this repo. The ROS 2 packages live under its src/ folder,
+#    so treat the whole repo as your workspace.
+git clone https://github.com/Askari130/Mibot.git ~/mibot_ws
+cd ~/mibot_ws
 
 # 2. Install ROS 2 dependencies
-cd ~/mibot_ws
 sudo apt update
 sudo rosdep init      # first time only, ignore if it says already initialised
 rosdep update
@@ -136,10 +135,10 @@ Get these wrong and SLAM will drift or the map will look scaled oddly.
 
 ### Encoder config
 
-Only the two rear motors are encoded. `mibot_hardware` reads one encoder per side and reports that as the wheel state to `diff_drive_controller`. In `mibot_hardware/config/hardware.yaml`:
+Only the two rear motors are encoded. `mibot_drive` reads one encoder per side and integrates them into `/odom`. In `mibot_drive/config/hardware.yaml`:
 
 ```yaml
-mibot_hardware:
+mibot_drive:
   ros__parameters:
     # L298N control pins (BCM numbering)
     left_pwm_pin: 12
@@ -160,6 +159,8 @@ mibot_hardware:
     invert_left_encoder: false
     invert_right_encoder: false
 ```
+
+The full parameter list — including geometry (`wheel_radius`, `wheel_separation`), motor calibration (`max_linear_speed`, `min_pwm_duty`), loop rates, and TF/frame settings — is in [`src/mibot_drive/config/hardware.yaml`](../src/mibot_drive/config/hardware.yaml).
 
 **How to measure `encoder_ticks_per_revolution`:**
 
@@ -261,7 +262,7 @@ Then set a `2D Pose Estimate` and `2D Goal Pose` in RViz.
 | `/scan` | `sensor_msgs/LaserScan` | LIDAR |
 | `/image_raw` | `sensor_msgs/Image` | Camera |
 | `/odom` | `nav_msgs/Odometry` | From `diff_drive_controller`, computed from the rear quadrature encoders — closed-loop |
-| `/wheel_ticks` | `mibot_msgs/WheelTicks` | Raw encoder tick counts (for tuning and debugging) |
+| `/wheel_ticks` | `std_msgs/Int32MultiArray` | `[left_total, right_total]` raw encoder tick counts (for tuning and debugging) |
 | `/tf`, `/tf_static` | `tf2_msgs/TFMessage` | Transforms |
 | `/map` | `nav_msgs/OccupancyGrid` | SLAM output |
 
@@ -303,7 +304,7 @@ sudo apt install -y gazebo libgazebo-dev
 
 ### Robot / motors
 
-- **Motors twitch but don't spin** — L298N enable pins (`ENA`/`ENB`) probably aren't getting PWM. Check the GPIO pins in `mibot_hardware` config match the wiring in [`hardware.md`](hardware.md).
+- **Motors twitch but don't spin** — L298N enable pins (`ENA`/`ENB`) probably aren't getting PWM. Check the GPIO pins in `mibot_drive/config/hardware.yaml` match the wiring in [`hardware.md`](hardware.md).
 - **One side drives backwards** — flip the two motor wires at the L298N for that side. Faster than fixing in code, and it removes a permanent sign-flip you'd otherwise have to remember.
 
 ### Controllers (`ros2 control`)
