@@ -93,7 +93,7 @@ Full stack and install steps in [`docs/software.md`](docs/software.md).
 
 ## Credits
 
-- Built by [@fun_shoo](https://x.com/fun_shoo) — Muqaddis Adedeji Olopade
+- Built by — Muqaddis Adedeji Olopade
 - Tutorial series: [Articulated Robotics — Building a Mobile Robot](https://youtube.com/playlist?list=PLunhqkrRNRhYAffV8JDiFOatQXuU-NnxT) by Josh Newans
 
 ## License
