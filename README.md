@@ -31,6 +31,14 @@ Below is the SLAM map built with the LIDAR while teleoperating Mibot around a ro
 
 The whole build follows Josh Newans' **[Building a Mobile Robot](https://youtube.com/playlist?list=PLunhqkrRNRhYAffV8JDiFOatQXuU-NnxT)** playlist on the *Articulated Robotics* YouTube channel (23 episodes). If you're recreating Mibot, that series is the primary reference — this repo just captures what changed in *my* build and how to run it end-to-end.
 
+The ROS 2 launch and bring-up structure also borrows from Ekumen's **[Andino](https://github.com/Ekumen-OS/andino)**, an open-source ROS 2 differential-drive robot whose `andino_bringup` / `andino_description` layout is a useful template for hobby robots on a Pi.
+
+## Background
+
+This project grew out of my earlier work on the **[PARC 2025 Autonomy Track](https://parc-robotics.github.io/documentation-2025/competition-instructions/phase-1/autonomy-track/)** (Pan-African Robotics Competition), where I got the ROS 2 + Gazebo + diff-drive stack working end-to-end on a simulated maze. Mibot is that same stack running on real hardware I built myself.
+
+Development environment: **Dell Precision M4800** laptop running Ubuntu 22.04, with a Quadro K1100M GPU (fine for RViz2 and 2D SLAM; struggles with heavy Gazebo scenes — see [`docs/software.md`](docs/software.md)).
+
 ## Repo structure
 
 ```
@@ -74,7 +82,7 @@ ros2 run rviz2 rviz2 -d config/mibot.rviz
 | Compute | Raspberry Pi 4 (4 GB) in a red case |
 | Motor driver | L298N dual H-bridge |
 | Motors | 4 × DC gear motors as a differential drive — 2 front (yellow TT, plain) + 2 rear (encoded, one per side, feeding real odometry) |
-| Sensors | 2D LIDAR, on-board camera |
+| Sensors | Slamtec RPLIDAR (2D 360° LIDAR, USB), on-board camera |
 | Power | Energizer USB power bank (Pi) + separate battery pack for motors |
 
 Full parts list and wiring in [`docs/hardware.md`](docs/hardware.md).

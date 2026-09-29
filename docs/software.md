@@ -14,7 +14,7 @@ Mibot runs a stock ROS 2 stack. This file covers the OS, packages, workspace lay
 | Robot description | URDF/Xacro |
 | Simulation | Gazebo (optional, for testing before the real robot exists) |
 | Motor control | `ros2_control` with `diff_drive_controller` and a small `hardware_interface` that drives the L298N over GPIO and reads the rear-wheel quadrature encoders (one per side) |
-| LIDAR driver | Whichever driver package matches your LIDAR (`rplidar_ros`, `ldlidar_stl_ros2`, `sllidar_ros2`, …) |
+| LIDAR driver | `rplidar_ros` (or `sllidar_ros2`) for the Slamtec RPLIDAR |
 | Camera driver | `v4l2_camera` (USB webcam) or `camera_ros` (Pi Camera via libcamera) |
 | Teleop | `teleop_twist_keyboard`, `teleop_twist_joy` |
 | Twist arbitration | `twist_mux` |
@@ -79,7 +79,9 @@ sudo apt install -y \
     ros-humble-teleop-twist-keyboard \
     ros-humble-teleop-twist-joy \
     ros-humble-v4l2-camera \
-    ros-humble-image-transport-plugins
+    ros-humble-image-transport-plugins \
+    ros-humble-rplidar-ros \
+    ros-humble-xacro
 
 # 4. Build
 colcon build --symlink-install
@@ -100,18 +102,26 @@ Any number 0–101 works; picking one keeps you off other people's robots on the
 
 ### LIDAR device name
 
-The LIDAR shows up as `/dev/ttyUSB0` by default, but that name changes if you plug things in a different order. Give it a stable name with a udev rule — `lsusb` gets the vendor and product IDs, then:
+The RPLIDAR shows up as `/dev/ttyUSB0` by default, but that name changes if you plug things in a different order. Give it a stable name with a udev rule — the Slamtec CP210x adapter's IDs (`10c4:ea60`) are the common ones, but confirm with `lsusb`:
 
 ```bash
 # /etc/udev/rules.d/99-mibot-lidar.rules
-SUBSYSTEM=="tty", ATTRS{idVendor}=="10c4", ATTRS{idProduct}=="ea60", SYMLINK+="mibot_lidar", MODE="0666"
+SUBSYSTEM=="tty", ATTRS{idVendor}=="10c4", ATTRS{idProduct}=="ea60", SYMLINK+="ttyUSB_LIDAR", MODE="0666"
 ```
 
 ```bash
 sudo udevadm control --reload-rules && sudo udevadm trigger
 ```
 
-Then point the LIDAR launch file at `/dev/mibot_lidar`.
+Then point the LIDAR launch file at `/dev/ttyUSB_LIDAR`.
+
+If the udev rule doesn't take (LIDAR-driver launches fail with "no such device"), fall back to whatever it actually enumerated as:
+
+```bash
+ls /dev/ttyUSB*
+# then override the launch arg
+ros2 launch mibot_bringup mibot.launch.py serial_port:=/dev/ttyUSB0
+```
 
 ### URDF measurements
 
@@ -255,21 +265,138 @@ Then set a `2D Pose Estimate` and `2D Goal Pose` in RViz.
 | `/tf`, `/tf_static` | `tf2_msgs/TFMessage` | Transforms |
 | `/map` | `nav_msgs/OccupancyGrid` | SLAM output |
 
+## Simulation (Gazebo)
+
+Before running on the real robot, the URDF and the differential-drive controller are worth verifying in Gazebo. The same `mibot_description` package feeds both.
+
+```bash
+ros2 launch mibot_description gazebo.launch.py
+```
+
+Then teleop the simulated robot with the same `teleop_twist_keyboard` command as the real one.
+
+**Note on GPU:** if you're developing on an older laptop (the reference dev machine is a Dell Precision M4800 with a Quadro K1100M), turn down Gazebo's shadow and reflection settings, or use `gz sim --render-engine ogre` instead of `ogre2`, otherwise the sim slows to a crawl and physics can go non-real-time.
+
+### Fixing the Gazebo GPG key on a fresh Ubuntu 22.04 install
+
+The OSRF signing key has been rotated. If `apt update` complains about `EXPKEYSIG F42ED6FBAB17C654 Open Robotics`, do this instead of using the deprecated `apt-key`:
+
+```bash
+# 1. Remove the old expired key if it's there
+sudo apt-key del F42ED6FBAB17C654 2>/dev/null || true
+
+# 2. Install the new key into a dedicated keyring
+curl -fsSL https://packages.osrfoundation.org/gazebo.key \
+  | gpg --dearmor \
+  | sudo tee /usr/share/keyrings/gazebo-archive-keyring.gpg > /dev/null
+
+# 3. Re-add the source list, signed by that keyring
+echo "deb [signed-by=/usr/share/keyrings/gazebo-archive-keyring.gpg] http://packages.osrfoundation.org/gazebo/ubuntu-stable $(lsb_release -cs) main" \
+  | sudo tee /etc/apt/sources.list.d/gazebo-stable.list > /dev/null
+
+# 4. Update and install
+sudo apt update
+sudo apt install -y gazebo libgazebo-dev
+```
+
 ## Troubleshooting
+
+### Robot / motors
 
 - **Motors twitch but don't spin** — L298N enable pins (`ENA`/`ENB`) probably aren't getting PWM. Check the GPIO pins in `mibot_hardware` config match the wiring in [`hardware.md`](hardware.md).
 - **One side drives backwards** — flip the two motor wires at the L298N for that side. Faster than fixing in code, and it removes a permanent sign-flip you'd otherwise have to remember.
+
+### Controllers (`ros2 control`)
+
+- **`ros2 control list_controllers` shows the controller as `unconfigured` or missing entirely** — the spawner didn't come up. Confirm `controller_manager` is running (`ros2 node list | grep controller_manager`), then check its config YAML is being loaded by the launch file. A healthy state looks like:
+
+  ```
+  robot_base_controller  diff_drive_controller/DiffDriveController  active
+  joint_state_broadcaster  joint_state_broadcaster/JointStateBroadcaster  active
+  ```
+
+- **Publishing to `/cmd_vel` does nothing but the controller says `active`** — check the actual topic the controller subscribes to. Some setups use `/robot_base_controller/cmd_vel_unstamped`. Verify:
+
+  ```bash
+  ros2 topic info /robot_base_controller/cmd_vel_unstamped
+  # Subscriber count should be 1
+  ```
+
+  If subscriber count is 0, the controller isn't wired up correctly.
+
+### Launch / URDF
+
+- **`ros2 param get /robot_state_publisher robot_description` → "Node not found"** — the `robot_state_publisher` either crashed or hasn't finished starting yet. Two fixes:
+  1. Confirm the launch file actually processes the xacro and passes it to `robot_state_publisher`:
+
+     ```python
+     from ament_index_python.packages import get_package_share_directory
+     import xacro
+
+     robot_description_config = xacro.process_file(
+         os.path.join(
+             get_package_share_directory('mibot_description'),
+             'urdf', 'mibot.urdf.xacro'
+         )
+     )
+
+     robot_state_publisher = Node(
+         package='robot_state_publisher',
+         executable='robot_state_publisher',
+         parameters=[{'robot_description': robot_description_config.toxml()}],
+     )
+     ```
+
+  2. If a downstream node reads `robot_description` too early (race condition), wrap that read in a `TimerAction` to give `robot_state_publisher` time to register:
+
+     ```python
+     from launch.actions import TimerAction
+
+     TimerAction(period=2.0, actions=[
+         ExecuteProcess(cmd=[
+             "ros2", "param", "get", "--hide-type",
+             "/robot_state_publisher", "robot_description"
+         ])
+     ])
+     ```
+
+### LIDAR / SLAM
+
 - **LIDAR shows up but SLAM stays blank** — TF is probably wrong. Run `ros2 run tf2_tools view_frames` and confirm `map → odom → base_link → lidar_link` all exist.
 - **RViz shows the LIDAR scan but no robot model** — `Fixed Frame` is set to something that doesn't exist yet. Start with `Fixed Frame = base_link` while there's no map, then switch to `map` after SLAM starts publishing.
+- **LIDAR driver fails with "no such device"** — the port isn't `/dev/ttyUSB_LIDAR` (or whatever the udev rule sets). List real ones and override:
+
+  ```bash
+  ls /dev/ttyUSB*
+  ros2 launch mibot_bringup mibot.launch.py serial_port:=/dev/ttyUSB0
+  ```
+
+### Camera
+
 - **Camera drops frames over Wi-Fi** — use `image_transport` with `compressed` on the laptop side: subscribe to `/image_raw/compressed` in RViz instead of `/image_raw`.
+
+### Odometry / encoders
+
 - **Odometry drifts backwards when robot goes forward** — an encoder channel is inverted. Flip `invert_left_encoder` or `invert_right_encoder` in `hardware.yaml`, whichever side is wrong.
 - **Encoder ticks stay at zero** — either `VCC` isn't reaching the encoder board (check with a multimeter, some modules want 5 V not 3.3 V), or the A/B channels are wired to non-interrupt pins. GPIO 5, 6, 16, 26 all work; other pins may miss ticks at speed.
 - **Robot drives straight but odometry says it's turning** — one side's wheel radius is off, or one encoder is missing every other tick. Compare `/wheel_ticks` from the left and right over a straight 1 m push; they should be within a few percent.
 
+### Teleop
+
+- **`teleop_twist_keyboard` runs but nothing moves** — the key layout is `u i o / j k l / m , .`. `i` = forward, `,` = reverse, `j` / `l` = turn, `k` = stop. If the terminal loses focus, keys don't register. Also verify remapping: the node publishes to `/cmd_vel` by default, but Mibot's `twist_mux` expects `/cmd_vel_key`:
+
+  ```bash
+  ros2 run teleop_twist_keyboard teleop_twist_keyboard \
+      --ros-args -r cmd_vel:=/cmd_vel_key
+  ```
+
 ## References
 
 - [Articulated Robotics — Building a Mobile Robot playlist](https://youtube.com/playlist?list=PLunhqkrRNRhYAffV8JDiFOatQXuU-NnxT) — the tutorial series this build follows.
+- [Andino](https://github.com/Ekumen-OS/andino) — Ekumen's open-source ROS 2 differential-drive robot. The `andino_bringup` launch structure (e.g. `include_rplidar:=True include_camera:=True serial_port:=/dev/ttyUSB0`) is the pattern Mibot's own bring-up borrows from.
+- [PARC 2025 Autonomy Track docs](https://parc-robotics.github.io/documentation-2025/competition-instructions/phase-1/autonomy-track/) — earlier work on maze navigation in Gazebo that this repo grew out of.
 - [ROS 2 Humble docs](https://docs.ros.org/en/humble/)
 - [`slam_toolbox`](https://github.com/SteveMacenski/slam_toolbox)
 - [Nav2](https://docs.nav2.org/)
 - [`ros2_control` docs](https://control.ros.org/humble/index.html)
+- [`rplidar_ros`](https://github.com/Slamtec/rplidar_ros) / [`sllidar_ros2`](https://github.com/Slamtec/sllidar_ros2) — Slamtec's official RPLIDAR drivers.

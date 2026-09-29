@@ -33,7 +33,7 @@ Everything visible in the photo, plus the bits mounted underneath or hidden by w
 
 | Item | Notes |
 |---|---|
-| 2D LIDAR | Used for SLAM and visualised as `LaserScan` in RViz2. Common cheap options that work with the same driver: RPLIDAR A1 / LD06 / LD19 — set the model you actually bought here. |
+| Slamtec **RPLIDAR** (2D, 360°, USB serial) | Used for SLAM and visualised as `LaserScan` in RViz2. Enumerates as a USB serial device (see the LIDAR device name section in [`software.md`](software.md)). Driven by the `rplidar_ros` / `sllidar_ros2` driver package. |
 | Camera | Mounted on top when running. Either a Pi Camera Module (via CSI ribbon) or a USB webcam — set which one you're using in [`software.md`](software.md). |
 
 ### Power
@@ -101,7 +101,7 @@ The four encoder-channel pins (5, 6, 16, 26) are all interrupt-capable on the Pi
 
 ### Sensors
 
-- **LIDAR:** USB into the Pi. Most cheap 2D LIDARs enumerate as `/dev/ttyUSB0`; udev rules to give it a stable name are in [`software.md`](software.md).
+- **LIDAR:** RPLIDAR into a USB port on the Pi. It enumerates as `/dev/ttyUSB0` by default, or `/dev/ttyUSB_LIDAR` once you install the udev rule in [`software.md`](software.md).
 - **Camera:** either the CSI ribbon into the Pi's camera connector (Pi Camera) or USB (webcam).
 
 ## Physical assembly notes
